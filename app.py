@@ -5,7 +5,7 @@ from pathlib import Path
 
 st.set_page_config(page_title="Motilal & Invesco SWP Dashboard", page_icon="📈", layout="wide")
 
-DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR = Path(__file__).parent
 
 # ----------------------------- Data loading -----------------------------
 
@@ -97,7 +97,7 @@ def render_month_dashboard(df, fund_name):
     styled = display_df.style.map(style_returns, subset=["Daily Return (₹)", "Daily Return (%)"]) \
         .format({"Daily Return (₹)": "{:+,.0f}", "Daily Return (%)": "{:+.2f}%"}, na_rep="—")
 
-    st.dataframe(styled, use_container_width=True, hide_index=True)
+    st.dataframe(styled, width='stretch', hide_index=True)
 
     # Month total return
     valid = month_df.dropna(subset=["change_rs"])
@@ -149,7 +149,7 @@ with tab3:
 
     styled = display_df.style.map(style_returns, subset=["Daily Return (₹)", "Daily Return (%)"]) \
         .format({"Daily Return (₹)": "{:+,.0f}", "Daily Return (%)": "{:+.2f}%"}, na_rep="—")
-    st.dataframe(styled, use_container_width=True, hide_index=True)
+    st.dataframe(styled, width='stretch', hide_index=True)
 
     valid = month_df.dropna(subset=["change_rs"])
     total_rs = valid["change_rs"].sum()
