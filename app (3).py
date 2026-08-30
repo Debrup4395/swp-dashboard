@@ -67,45 +67,58 @@ col3.metric("Combined Portfolio Value", f"₹{latest_motilal['value'] + latest_i
 
 st.divider()
 
-# ----------------------------- Month dropdown dashboard -----------------------------
+# ----------------------------- Period (Month/Week) dropdown dashboard -----------------------------
 
-def month_options(df):
-    months = sorted(df["date"].dt.to_period("M").unique())
-    return {f"{calendar.month_name[m.month]} {m.year}": m for m in months}
+def period_options(df, freq):
+    """freq: 'M' for calendar month, 'W' for week (Mon-Sun)."""
+    periods = sorted(df["date"].dt.to_period(freq).unique())
+    if freq == "M":
+        return {f"{calendar.month_name[m.month]} {m.year}": m for m in periods}
+    else:
+        opts = {}
+        for p in periods:
+            start = p.start_time.strftime("%d-%b-%Y")
+            end = p.end_time.strftime("%d-%b-%Y")
+            opts[f"{start} to {end}"] = p
+        return opts
 
-def render_month_dashboard(df, fund_name):
-    opts = month_options(df)
-    selected_label = st.selectbox(f"Select month — {fund_name}", list(opts.keys()), index=len(opts) - 1, key=fund_name)
+def style_returns(val):
+    if pd.isna(val):
+        return ""
+    color = "#1a7f37" if val >= 0 else "#d1242f"
+    return f"color: {color}; font-weight: 600;"
+
+def render_period_dashboard(df, fund_name, freq, freq_label):
+    opts = period_options(df, freq)
+    selected_label = st.selectbox(
+        f"Select {freq_label.lower()} — {fund_name}",
+        list(opts.keys()),
+        index=len(opts) - 1,
+        key=f"{fund_name}_{freq}_select",
+    )
     period = opts[selected_label]
 
-    month_df = df[df["date"].dt.to_period("M") == period].copy()
-    month_df["Date"] = month_df["date"].dt.strftime("%d-%b-%Y")
-    month_df["NAV"] = month_df["nav"].map(lambda x: f"{x:,.2f}")
-    month_df["Units Held"] = month_df["units"].map(lambda x: f"{x:,.2f}")
-    month_df["Value (₹)"] = month_df["value"].map(lambda x: f"{x:,.0f}")
-    month_df["Daily Return (₹)"] = month_df["change_rs"]
-    month_df["Daily Return (%)"] = month_df["change_pct"]
+    period_df = df[df["date"].dt.to_period(freq) == period].copy()
+    period_df["Date"] = period_df["date"].dt.strftime("%d-%b-%Y")
+    period_df["NAV"] = period_df["nav"].map(lambda x: f"{x:,.2f}")
+    period_df["Units Held"] = period_df["units"].map(lambda x: f"{x:,.2f}")
+    period_df["Value (₹)"] = period_df["value"].map(lambda x: f"{x:,.0f}")
+    period_df["Daily Return (₹)"] = period_df["change_rs"]
+    period_df["Daily Return (%)"] = period_df["change_pct"]
 
-    display_df = month_df[["Date", "Daily Return (%)", "Daily Return (₹)", "NAV", "Units Held", "Value (₹)"]].reset_index(drop=True)
-
-    def style_returns(val):
-        if pd.isna(val):
-            return ""
-        color = "#1a7f37" if val >= 0 else "#d1242f"
-        return f"color: {color}; font-weight: 600;"
+    display_df = period_df[["Date", "Daily Return (%)", "Daily Return (₹)", "NAV", "Units Held", "Value (₹)"]].reset_index(drop=True)
 
     styled = display_df.style.map(style_returns, subset=["Daily Return (₹)", "Daily Return (%)"]) \
         .format({"Daily Return (₹)": "{:+,.0f}", "Daily Return (%)": "{:+.2f}%"}, na_rep="—")
 
     st.dataframe(styled, width='stretch', hide_index=True)
 
-    # Month total return
-    valid = month_df.dropna(subset=["change_rs"])
+    # Period total return
+    valid = period_df.dropna(subset=["change_rs"])
     total_rs = valid["change_rs"].sum()
-    start_value = month_df["value"].iloc[0] if not month_df.empty else 0
-    end_value = month_df["value"].iloc[-1] if not month_df.empty else 0
-    start_nav = month_df["nav"].iloc[0]
-    end_nav = month_df["nav"].iloc[-1]
+    end_value = period_df["value"].iloc[-1] if not period_df.empty else 0
+    start_nav = period_df["nav"].iloc[0]
+    end_nav = period_df["nav"].iloc[-1]
     nav_return_pct = (end_nav / start_nav - 1) * 100
 
     m1, m2, m3 = st.columns(3)
@@ -113,13 +126,25 @@ def render_month_dashboard(df, fund_name):
     m2.metric(f"{selected_label} — NAV Return (%)", f"{'+' if nav_return_pct>=0 else ''}{nav_return_pct:.2f}%")
     m3.metric(f"{selected_label} — End Value", f"₹{end_value:,.0f}")
 
+def render_fund_tab(df, fund_name):
+    granularity = st.radio(
+        "View by",
+        ["Month", "Week"],
+        horizontal=True,
+        key=f"{fund_name}_granularity",
+    )
+    if granularity == "Month":
+        render_period_dashboard(df, fund_name, "M", "Month")
+    else:
+        render_period_dashboard(df, fund_name, "W", "Week")
+
 tab1, tab2, tab3 = st.tabs(["🏦 Motilal Oswal Midcap (Combined)", "🏦 Invesco India Midcap", "📊 Combined Portfolio"])
 
 with tab1:
-    render_month_dashboard(motilal_df, "Motilal Oswal Midcap")
+    render_fund_tab(motilal_df, "Motilal Oswal Midcap")
 
 with tab2:
-    render_month_dashboard(invesco_df, "Invesco India Midcap")
+    render_fund_tab(invesco_df, "Invesco India Midcap")
 
 with tab3:
     combined = motilal_df[["date", "nav", "value", "change_rs"]].rename(columns={"value": "motilal_value", "change_rs": "motilal_change"})
@@ -131,30 +156,32 @@ with tab3:
     merged["units"] = 0  # placeholder, not shown
     merged["nav"] = merged["value"]  # not used in this view directly
 
-    opts = month_options(merged)
-    selected_label = st.selectbox("Select month — Combined Portfolio", list(opts.keys()), index=len(opts) - 1, key="combined")
+    granularity = st.radio("View by", ["Month", "Week"], horizontal=True, key="combined_granularity")
+    freq = "M" if granularity == "Month" else "W"
+
+    opts = period_options(merged, freq)
+    selected_label = st.selectbox(
+        f"Select {granularity.lower()} — Combined Portfolio",
+        list(opts.keys()),
+        index=len(opts) - 1,
+        key=f"combined_{freq}_select",
+    )
     period = opts[selected_label]
-    month_df = merged[merged["date"].dt.to_period("M") == period].copy()
-    month_df["Date"] = month_df["date"].dt.strftime("%d-%b-%Y")
-    month_df["Portfolio Value (₹)"] = month_df["value"].map(lambda x: f"{x:,.0f}")
-    display_df = month_df[["Date", "change_pct", "change_rs", "Portfolio Value (₹)"]].rename(
+    period_df = merged[merged["date"].dt.to_period(freq) == period].copy()
+    period_df["Date"] = period_df["date"].dt.strftime("%d-%b-%Y")
+    period_df["Portfolio Value (₹)"] = period_df["value"].map(lambda x: f"{x:,.0f}")
+    display_df = period_df[["Date", "change_pct", "change_rs", "Portfolio Value (₹)"]].rename(
         columns={"change_rs": "Daily Return (₹)", "change_pct": "Daily Return (%)"}
     ).reset_index(drop=True)
-
-    def style_returns(val):
-        if pd.isna(val):
-            return ""
-        color = "#1a7f37" if val >= 0 else "#d1242f"
-        return f"color: {color}; font-weight: 600;"
 
     styled = display_df.style.map(style_returns, subset=["Daily Return (₹)", "Daily Return (%)"]) \
         .format({"Daily Return (₹)": "{:+,.0f}", "Daily Return (%)": "{:+.2f}%"}, na_rep="—")
     st.dataframe(styled, width='stretch', hide_index=True)
 
-    valid = month_df.dropna(subset=["change_rs"])
+    valid = period_df.dropna(subset=["change_rs"])
     total_rs = valid["change_rs"].sum()
-    end_value = month_df["value"].iloc[-1] if not month_df.empty else 0
-    start_value = month_df["value"].iloc[0] - month_df["change_rs"].fillna(0).iloc[0] if not month_df.empty else 0
+    end_value = period_df["value"].iloc[-1] if not period_df.empty else 0
+    start_value = period_df["value"].iloc[0] - period_df["change_rs"].fillna(0).iloc[0] if not period_df.empty else 0
     total_pct = (total_rs / start_value * 100) if start_value else float("nan")
     c1, c2, c3 = st.columns(3)
     c1.metric(f"{selected_label} — Combined Total Return (₹)", f"{'+' if total_rs>=0 else ''}{total_rs:,.0f}")
@@ -164,4 +191,5 @@ with tab3:
 st.divider()
 st.caption("Data source: Motilal Oswal & Invesco daily NAV history, plus your SWP investment/withdrawal records. "
            "Daily return = change in NAV × units held at the start of the day (i.e. pure market movement, excluding that day's SWP cashflow). "
+           "Use the 'View by' toggle to switch between monthly and weekly (Mon–Sun) breakdowns. "
            "Update the CSV files in the /data folder to refresh with new NAV data.")
